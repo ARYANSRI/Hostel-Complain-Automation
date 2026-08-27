@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FixBit - Hostel Maintenance</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=EB+Garamond:ital,wght@0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --parchment-base: #dfc498;
+            --parchment-dark: #d2b380;
+            --parchment-light: #e8d0a8;
+            --ink: #3a2b1c;
+            --ink-light: #5c4731;
+            --btn-bg: #1e2c24;
+            --btn-text: #c0ab8c;
+            --gold-accent: #b08d55;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'EB Garamond', serif;
+            color: var(--ink);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            
+            /* Use the uploaded image as the background, darkened slightly for readability */
+            background-color: #0b110d;
+            background-image: linear-gradient(rgba(10, 15, 12, 0.4), rgba(10, 15, 12, 0.6)), url('/static/bg.jpg');
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            background-repeat: no-repeat;
+        }
+
+        /* SVG Noise Filter for Paper Texture */
+        .paper-texture {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            pointer-events: none;
+            opacity: 0.4;
+            z-index: 0;
+            background-image: url('data:image/svg+xml;utf8,<svg width="200" height="200" xmlns="http://www.w3.org/2000/svg"><filter id="noise"><feTurbulence type="fractalNoise" baseFrequency="0.04" numOctaves="3" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(%23noise)" opacity="0.5"/></svg>');
+        }
+
+        /* Main Form Container (The Parchment) */
+        .container {
+            background-color: var(--parchment-base);
+            position: relative;
+            padding: 75px 85px; /* Increased padding vertically and horizontally */
+            width: 100%;
+            max-width: 820px; /* Increased from 600px to fully cover background parchment */
+            min-height: 680px; /* Ensures it covers the painted submit button underneath */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            z-index: 1;
+            
+            /* Simulate ragged/antique edges */
+            border-radius: 2px 5px 3px 4px;
+            box-shadow: 
+                0 20px 50px rgba(0,0,0,0.6),
+                inset 0 0 40px rgba(100, 60, 20, 0.2),
+                inset 0 0 10px rgba(0,0,0,0.1);
+            
+            /* Outer darker border line simulating the torn rim */
+            border: 1px solid rgba(139, 90, 43, 0.3);
+        }
+
+        .container::before {
+            content: '';
+            position: absolute;
+            top: 4px; left: 4px; right: 4px; bottom: 4px;
+            border: 1px solid rgba(139, 90, 43, 0.15);
+            pointer-events: none;
+        }
+
+        /* Form Header */
+        .form-header {
+            text-align: center;
+            margin-bottom: 25px;
+        }
+
+        .form-header h2 {
+            font-family: 'Cinzel', serif;
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: var(--ink);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .form-header h2 svg {
+            width: 20px;
+            height: 20px;
+            fill: var(--ink);
+        }
+
+        .form-header p {
+            font-size: 15px;
+            color: var(--ink-light);
+            font-style: italic;
+        }
+
+        /* Form Fields */
+        .form-group {
+            margin-bottom: 22px;
+            position: relative;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-family: 'Cinzel', serif;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            color: var(--ink);
+            text-transform: uppercase;
+        }
+
+        .helper-text {
+            display: block;
+            font-size: 13.5px;
+            color: var(--ink-light);
+            margin-bottom: 6px;
+            font-style: italic;
+        }
+
+        /* Input Wrappers for Icons */
+        .input-wrapper {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .input-wrapper svg {
+            position: absolute;
+            left: 14px;
+            top: 14px;
+            width: 16px;
+            height: 16px;
+            fill: var(--ink-light);
+            opacity: 0.7;
+            pointer-events: none;
+        }
+
+        .input-wrapper textarea ~ svg {
+            top: 14px;
+        }
+
+        input[type="text"],
+        input[type="email"],
+        textarea {
+            width: 100%;
+            padding: 12px 12px 12px 40px; /* Space for icon */
+            background-color: var(--parchment-light);
+            border: 1px solid rgba(139, 90, 43, 0.2);
+            border-bottom: 1px solid rgba(139, 90, 43, 0.4);
+            border-radius: 2px;
+            font-family: 'EB Garamond', serif;
+            font-size: 16px;
+            color: var(--ink);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.03);
+            transition: all 0.3s ease;
+        }
+
+        textarea {
+            resize: vertical;
+            height: 100px;
+        }
+
+        input:focus, textarea:focus {
+            outline: none;
+            background-color: #f1dfc1;
+            border-bottom-color: var(--gold-accent);
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.02), 0 2px 5px rgba(176, 141, 85, 0.2);
+        }
+
+        input::placeholder, textarea::placeholder {
+            color: #9c8a75;
+            font-style: italic;
+        }
+
+        /* Submit Button */
+        button {
+            width: 100%;
+            padding: 14px;
+            background-color: var(--btn-bg);
+            color: var(--btn-text);
+            border: 1px solid #000;
+            border-radius: 3px;
+            cursor: pointer;
+            font-family: 'Cinzel', serif;
+            font-size: 16px;
+            font-weight: 600;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3), inset 0 1px 1px rgba(255,255,255,0.1);
+            transition: all 0.2s ease;
+            margin-top: 10px;
+        }
+
+        button svg {
+            width: 18px;
+            height: 18px;
+            fill: var(--btn-text);
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #15221a;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 10px rgba(0,0,0,0.4);
+        }
+
+        button:disabled {
+            background-color: #4a453e;
+            color: #8b8171;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        /* Bottom Feature Banner (Fixed or Relative) */
+        .feature-banner {
+            margin-top: 40px;
+            display: flex;
+            gap: 20px;
+            background-color: rgba(15, 23, 18, 0.85);
+            border: 1px solid rgba(176, 141, 85, 0.3);
+            border-radius: 4px;
+            padding: 15px 30px;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            backdrop-filter: blur(4px);
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .feature-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #d8c3a5;
+        }
+
+        .feature-item svg {
+            width: 24px;
+            height: 24px;
+            fill: var(--gold-accent);
+        }
+
+        .feature-text strong {
+            display: block;
+            font-family: 'Cinzel', serif;
+            font-size: 12px;
+            letter-spacing: 1px;
+            margin-bottom: 2px;
+            color: #eaddc4;
+        }
+
+        .feature-text span {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        /* Message / Receipt States */
+        .message {
+            margin-top: 20px;
+            display: none;
+        }
+
+        .message.success, .message.error, .message.loading {
+            display: block;
+            animation: fadeIn 0.4s ease;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(-5px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Success Receipt */
+        .success-receipt {
+            border: 1px solid rgba(139, 90, 43, 0.4);
+            background: rgba(255, 255, 255, 0.2);
+            padding: 20px;
+            border-radius: 2px;
+            text-align: center;
+        }
+        
+        .success-receipt h3 {
+            font-family: 'Cinzel', serif;
+            color: var(--ink);
+            margin-bottom: 5px;
+            border-bottom: 1px dashed rgba(139, 90, 43, 0.4);
+            padding-bottom: 10px;
+        }
+        
+        .receipt-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 8px;
+            text-align: left;
+            margin: 15px 0;
+            font-size: 15px;
+        }
+        
+        .receipt-item {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px dotted rgba(0,0,0,0.15);
+            padding-bottom: 4px;
+        }
+        
+        .receipt-item small {
+            font-family: 'Cinzel', serif;
+            font-weight: 600;
+        }
+
+        /* Loading Ring */
+        .loading-fx {
+            text-align: center;
+            font-family: 'Cinzel', serif;
+        }
+        .rune-ring {
+            width: 30px;
+            height: 30px;
+            margin: 0 auto 10px auto;
+            border: 2px solid transparent;
+            border-top-color: var(--ink);
+            border-bottom-color: var(--ink);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        
+        /* Error Card */
+        .error-card {
+            background: rgba(138, 42, 42, 0.1);
+            border: 1px solid #8a2a2a;
+            padding: 15px;
+            text-align: center;
+            color: #631d1d;
+        }
+        .error-card h3 { font-family: 'Cinzel', serif; margin-bottom: 5px; }
+
+        @media (max-width: 600px) {
+            .container { padding: 30px 20px; }
+            .feature-banner { flex-direction: column; text-align: center; }
+            .feature-item { flex-direction: column; text-align: center; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="paper-texture"></div>
+    
+    <div class="form-header">
+        <h1 style="font-family: 'Cinzel', serif; font-size: 38px; font-weight: 700; letter-spacing: 4px; margin-bottom: 5px; color: var(--ink); text-align: center;">FIXBIT</h1>
+        <p style="font-family: 'Cinzel', serif; font-size: 13px; font-weight: 600; letter-spacing: 1.5px; color: var(--ink-light); text-transform: uppercase; margin-bottom: 25px; border-bottom: 1px solid rgba(139, 90, 43, 0.3); padding-bottom: 20px;">Smart Hostel Maintenance System</p>
+
+        <h2>
+            <!-- Wrench Icon -->
+            <svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path><path d="M9 14L4 19"></path></svg>
+            SUBMIT MAINTENANCE COMPLAINT
+        </h2>
+        <p>Report an issue and let FixBit route it automatically</p>
+    </div>
+
+    <form id="complaintForm">
+        <div class="form-group">
+            <label for="room">Room Number / Block</label>
+            <div class="input-wrapper">
+                <!-- Building Icon -->
+                <svg viewBox="0 0 24 24"><path d="M3 21h18v-2H3v2zm4-16h10v14H7V5zm2 2v2h2V7H9zm4 0v2h2V7h-2zm-4 4v2h2v-2H9zm4 0v2h2v-2h-2zm-4 4v2h2v-2H9zm4 0v2h2v-2h-2z"></path><path d="M12 2L2 7h20L12 2z"></path></svg>
+                <input type="text" id="room" name="room" required placeholder="e.g. B-204, Block C">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="email">Student Email</label>
+            <span class="helper-text">We'll notify you when your complaint is resolved.</span>
+            <div class="input-wrapper">
+                <!-- Email Icon -->
+                <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"></path></svg>
+                <input type="email" id="email" name="email" required placeholder="student@example.com">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="text">Complaint Details</label>
+            <span class="helper-text">Example: Fan not working in B-204 since morning</span>
+            <div class="input-wrapper">
+                <!-- Feather/Quill Icon -->
+                <svg viewBox="0 0 24 24"><path d="M20.55 3.45c-1.39-1.39-3.7-1.33-5.36.33L4.54 14.43c-.48.48-.84 1.1-.99 1.77L3 21l4.8-1.55c.67-.15 1.29-.5 1.77-.98l10.65-10.65c1.66-1.66 1.72-3.97.33-5.37zm-9.3 12.8l-1.41-1.41L15.5 9.17l1.41 1.41-5.66 5.67z"></path></svg>
+                <textarea id="text" name="text" required placeholder="Describe the maintenance issue..."></textarea>
+            </div>
+        </div>
+        
+        <button type="submit" id="submitBtn">
+            <!-- Quill Icon -->
+            <svg viewBox="0 0 24 24"><path d="M20.55 3.45c-1.39-1.39-3.7-1.33-5.36.33L4.54 14.43c-.48.48-.84 1.1-.99 1.77L3 21l4.8-1.55c.67-.15 1.29-.5 1.77-.98l10.65-10.65c1.66-1.66 1.72-3.97.33-5.37z"></path></svg>
+            SUBMIT COMPLAINT
+        </button>
+    </form>
+    
+    <div id="statusMessage" class="message"></div>
+</div>
+
+<!-- Bottom Banner -->
+<div class="feature-banner">
+    <div class="feature-item">
+        <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"></path></svg>
+        <div class="feature-text">
+            <strong>AUTO CATEGORIZATION</strong>
+            <span>AI-Powered Issue Detection</span>
+        </div>
+    </div>
+    <div class="feature-item">
+        <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"></path></svg>
+        <div class="feature-text">
+            <strong>SMART ROUTING</strong>
+            <span>Quick Vendor Assignment</span>
+        </div>
+    </div>
+    <div class="feature-item">
+        <svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z"></path></svg>
+        <div class="feature-text">
+            <strong>TIMELY RESOLUTION</strong>
+            <span>Tracked Until It's Done</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    const ENVIRONMENT = 'local';
+    const API_BASE_URL = ENVIRONMENT === 'production' 
+        ? 'https://MY-RENDER-URL.onrender.com' 
+        : (window.location.protocol === 'file:' ? 'http://127.0.0.1:8080' : '');
+    const BACKEND_URL = `${API_BASE_URL}/submit-complaint`;
+
+    document.getElementById('complaintForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const room = document.getElementById('room').value;
+        const email = document.getElementById('email').value;
+        const text = document.getElementById('text').value;
+        const submitBtn = document.getElementById('submitBtn');
+        const statusMessage = document.getElementById('statusMessage');
+        const form = document.getElementById('complaintForm');
+
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = 'PROCESSING...';
+        
+        form.style.display = 'none';
+        statusMessage.className = 'message loading';
+        statusMessage.innerHTML = `
+            <div class="loading-fx">
+                <div class="rune-ring"></div>
+                <p>FixBit is processing your request...</p>
+            </div>
+        `;
+
+        fetch(BACKEND_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: text, room: room, email: email })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                let pd = data.parsed_data;
+                statusMessage.innerHTML = `
+                    <div class="success-receipt">
+                        <h3>COMPLAINT REGISTERED</h3>
+                        <p style="font-style: italic; font-size: 14px; margin-bottom: 10px;">FixBit has logged your request.</p>
+                        <div class="receipt-grid">
+                            <div class="receipt-item"><small>CATEGORY</small><span>${pd.category}</span></div>
+                            <div class="receipt-item"><small>URGENCY</small><span>${pd.urgency}</span></div>
+                            <div class="receipt-item"><small>LOCATION</small><span>${pd.room_block}</span></div>
+                            <div class="receipt-item"><small>STATUS</small><span>${pd.status}</span></div>
+                        </div>
+                        <p style="font-size: 13px; margin-top: 10px; color: var(--ink-light);">Resolution updates will be sent to <strong>${email}</strong></p>
+                    </div>
+                    <button style="margin-top: 15px;" onclick="location.reload()">SUBMIT ANOTHER</button>
+                `;
+                statusMessage.className = 'message success';
+                form.reset();
+            } else {
+                throw new Error(data.error || 'Server rejected complaint');
+            }
+        })
+        .catch(error => {
+            statusMessage.innerHTML = `
+                <div class="error-card">
+                    <h3>ERROR</h3>
+                    <p>FixBit could not process the request.</p>
+                </div>
+                <button style="margin-top: 15px;" onclick="document.getElementById('complaintForm').style.display='block'; document.getElementById('statusMessage').className='message';">GO BACK</button>
+            `;
+            statusMessage.className = 'message error';
+        })
+        .finally(() => {
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = `
+                <svg viewBox="0 0 24 24"><path d="M20.55 3.45c-1.39-1.39-3.7-1.33-5.36.33L4.54 14.43c-.48.48-.84 1.1-.99 1.77L3 21l4.8-1.55c.67-.15 1.29-.5 1.77-.98l10.65-10.65c1.66-1.66 1.72-3.97.33-5.37z"></path></svg>
+                SUBMIT COMPLAINT
+            `;
+        });
+    });
+</script>
+
+</body>
+</html>

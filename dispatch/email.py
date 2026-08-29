@@ -72,19 +72,22 @@ def send_email(to_email: str, subject: str, content: str) -> bool:
 def notify_vendor(vendor_email: str, complaint_details: dict) -> dict:
     """
     Dispatches a formatted email notification to a vendor.
-    
-    Args:
-        vendor_email (str): The email address of the assigned vendor.
-        complaint_details (dict): Dictionary with keys: category, urgency, room_block, raw_text
-        
-    Returns:
-        dict: A result dictionary indicating success or failure.
+    Falls back to simulated email logging in demo mode if SMTP is not configured.
     """
-    # Extract details, defaulting to 'Unknown' if missing
     category = complaint_details.get("category", "Unknown").capitalize()
     urgency = complaint_details.get("urgency", "Unknown").capitalize()
     room_block = complaint_details.get("room_block", "Unknown")
     raw_text = complaint_details.get("raw_text", "No text provided")
+
+    host = os.getenv("MAILTRAP_HOST")
+    port = os.getenv("MAILTRAP_PORT")
+    username = os.getenv("MAILTRAP_USERNAME")
+    password = os.getenv("MAILTRAP_PASSWORD")
+
+    # If Mailtrap is not configured, run in demo simulation mode
+    if not all([host, port, username, password]):
+        logger.info(f"[Demo Dispatch] Email notification simulated for vendor ({vendor_email}) - Issue: {category} ({urgency}) at {room_block}")
+        return {"success": True, "message": f"[Demo Mode] Simulated email dispatch to {vendor_email}"}
 
     subject = f"Hostel Maintenance Complaint — {urgency} Urgency — {category}"
     
@@ -110,13 +113,12 @@ def notify_vendor(vendor_email: str, complaint_details: dict) -> dict:
         else:
             return {"success": False, "message": "Failed to send email to vendor silently."}
     except Exception as e:
-        # Gracefully handle the error, ensuring the main application flow is not crashed
         logger.error(f"Failed to notify vendor {vendor_email}: {type(e).__name__}")
         return {"success": False, "message": f"SMTP sending failed: {type(e).__name__}"}
 
 def notify_student_resolved(student_email: str, complaint_details: dict) -> dict:
     """
-    Sends a professional email notification to the student confirming that their
+    Sends an email notification to the student confirming that their
     hostel maintenance complaint has been resolved.
     """
     if not student_email or '@' not in str(student_email):
@@ -126,6 +128,16 @@ def notify_student_resolved(student_email: str, complaint_details: dict) -> dict
     room_block = complaint_details.get("room_block", "Unknown Room")
     raw_text = complaint_details.get("raw_text", "No description provided")
     
+    host = os.getenv("MAILTRAP_HOST")
+    port = os.getenv("MAILTRAP_PORT")
+    username = os.getenv("MAILTRAP_USERNAME")
+    password = os.getenv("MAILTRAP_PASSWORD")
+
+    # If Mailtrap is not configured, run in demo simulation mode
+    if not all([host, port, username, password]):
+        logger.info(f"[Demo Dispatch] Resolution email simulated for student ({student_email}) - Room: {room_block}")
+        return {"success": True, "message": f"[Demo Mode] Simulated resolution email to {student_email}"}
+
     subject = f"Maintenance Complaint Resolved — {room_block}"
     
     body = (
@@ -153,3 +165,4 @@ def notify_student_resolved(student_email: str, complaint_details: dict) -> dict
     except Exception as e:
         logger.error(f"Failed to notify student {student_email}: {type(e).__name__}")
         return {"success": False, "message": f"SMTP sending failed: {type(e).__name__}"}
+

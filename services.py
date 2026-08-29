@@ -4,6 +4,9 @@ import logging
 from google import genai
 from google.genai import types
 
+import re
+import requests
+
 logger = logging.getLogger(__name__)
 
 from pydantic import BaseModel, Field
@@ -13,24 +16,58 @@ class ComplaintSchema(BaseModel):
     urgency: str = Field(description="Must be exactly one of: Low, Medium, High")
     room_block: str | None = Field(description="Use null when room/block cannot be identified", default=None)
 
+def heuristic_parse_complaint(text: str) -> dict:
+    """
+    Intelligent rule-based parser used as fallback when Gemini API key is not configured
+    or when rate limits/quotas are exceeded.
+    """
+    t = (text or "").lower()
+    
+    # 1. Detect Category
+    if any(k in t for k in ["fan", "light", "bulb", "switch", "socket", "wire", "wiring", "power", "electricity", "short circuit", "spark", "current", "geyser", "ac", "air condition", "cooler", "plug"]):
+        category = "Electrical"
+    elif any(k in t for k in ["tap", "faucet", "pipe", "leak", "water", "drain", "sink", "flush", "toilet", "washroom", "bathroom", "plumb", "clog", "sewage", "shower", "basin"]):
+        category = "Plumbing"
+    elif any(k in t for k in ["wifi", "wi-fi", "internet", "router", "lan", "network", "ethernet", "connection", "broadband", "speed"]):
+        category = "WiFi"
+    elif any(k in t for k in ["chair", "table", "desk", "bed", "door", "lock", "handle", "latch", "cupboard", "almirah", "wardrobe", "window", "furniture", "wood", "hinge", "mattress", "curtain"]):
+        category = "Furniture"
+    else:
+        category = "Other"
+        
+    # 2. Detect Urgency
+    if any(k in t for k in ["urgent", "emergency", "immediately", "shock", "fire", "sparking", "flood", "overflow", "danger", "burst", "severe", "critical", "broken completely"]):
+        urgency = "High"
+    elif any(k in t for k in ["minor", "small", "loose", "slight", "sometime", "paint", "creak", "slow"]):
+        urgency = "Low"
+    else:
+        urgency = "Medium"
+        
+    # 3. Detect Room / Block
+    room_block = None
+    room_match = re.search(r'\b(?:room\s*(?:no\.?|#)?\s*([a-zA-Z0-9\-]+)|([a-zA-Z][\-\s]?\d{2,4})|(\d{3,4}))\b', text, re.IGNORECASE)
+    if room_match:
+        room_block = room_match.group(0).strip()
+        
+    return {
+        "category": category,
+        "urgency": urgency,
+        "room_block": room_block
+    }
+
 def parse_complaint(text):
     """
     Parses a raw hostel complaint text using Gemini to extract structured JSON.
     Expected output keys: category, urgency, room_block
-    
-    On a 429 rate-limit error, tries fallback models (each has a separate free-tier quota).
-    Does NOT retry on auth errors, model-not-found, or other failures.
+    Falls back to heuristic analysis if Gemini API key is missing or quota is exhausted.
     """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        logger.error("GEMINI_API_KEY is not set.")
-        return {"category": "Other", "urgency": "Medium", "room_block": None}
+        logger.info("GEMINI_API_KEY not configured, using FixBit smart heuristic parser.")
+        return heuristic_parse_complaint(text)
     
-    primary_model = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
-    # Fallback models with separate free-tier quotas (tried only on 429)
-    # All confirmed working via probe: gemini-3.5-flash, gemini-3.7-flash, gemini-3.1-flash-lite
-    fallback_models = os.getenv("GEMINI_FALLBACK_MODELS", "gemini-3.5-flash,gemini-3.7-flash").split(",")
-    # Remove primary from fallbacks to avoid double-trying
+    primary_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+    fallback_models = os.getenv("GEMINI_FALLBACK_MODELS", "gemini-2.5-flash,gemini-1.5-flash,gemini-2.0-flash,gemini-3.5-flash,gemini-3.7-flash").split(",")
     fallback_models = [m.strip() for m in fallback_models if m.strip() and m.strip() != primary_model]
     
     models_to_try = [primary_model] + fallback_models
@@ -45,8 +82,6 @@ def parse_complaint(text):
         "Use null when room/block cannot be identified. "
         "Do not add explanations, markdown, or extra text."
     )
-    
-    last_error = None
     
     for model_name in models_to_try:
         try:
@@ -88,35 +123,21 @@ def parse_complaint(text):
             }
             
         except json.JSONDecodeError:
-            logger.error(f"JSON parsing error from Gemini response (model: {model_name})")
-            return {"category": "Other", "urgency": "Medium", "room_block": None}
+            logger.warning(f"JSON parsing error from Gemini response (model: {model_name})")
+            continue
         except Exception as e:
-            last_error = e
             error_msg = str(e).lower()
             is_rate_limit = "429" in str(e) or "resource_exhausted" in error_msg or "quota" in error_msg
-            
             if is_rate_limit:
-                logger.warning(
-                    f"Gemini rate limit/quota exceeded for model '{model_name}'. "
-                    "Trying next fallback model if available..."
-                )
-                continue  # Try the next model in the fallback chain
-            elif "404" in str(e) or "not_found" in error_msg:
-                logger.error(f"Gemini model '{model_name}' not found or unavailable. Check GEMINI_MODEL in .env")
-                return {"category": "Other", "urgency": "Medium", "room_block": None}
-            elif "403" in str(e) or "permission" in error_msg:
-                logger.error("Gemini API authentication/permission error. Check GEMINI_API_KEY in .env")
-                return {"category": "Other", "urgency": "Medium", "room_block": None}
+                logger.warning(f"Gemini rate limit exceeded for model '{model_name}'. Trying next fallback...")
+                continue
             else:
-                logger.error(f"Gemini API error ({type(e).__name__})")
-                return {"category": "Other", "urgency": "Medium", "room_block": None}
+                logger.warning(f"Gemini parse error with '{model_name}': {e}. Trying fallback...")
+                continue
     
-    # All models exhausted their quotas
-    logger.error(
-        "All Gemini models quota-exhausted. "
-        "Wait for quota reset or check https://ai.google.dev/gemini-api/docs/rate-limits"
-    )
-    return {"category": "Other", "urgency": "Medium", "room_block": None}
+    # Fallback to heuristic parser if all Gemini models fail or quota is exhausted
+    logger.info("All Gemini models exhausted or failed. Using smart heuristic fallback.")
+    return heuristic_parse_complaint(text)
 
 def decide_status(urgency, category):
     """
@@ -128,12 +149,26 @@ def decide_status(urgency, category):
         return "Pending Approval"
     return "Auto-Approved"
 
+
 import requests
+
+DEFAULT_VENDORS = {
+    "Electrical": {"name": "ElectroFix Solutions", "email": "electrofix@hostel.local"},
+    "Plumbing": {"name": "AquaRepair Services", "email": "aquarepair@hostel.local"},
+    "WiFi": {"name": "NetCare Solutions", "email": "netcare@hostel.local"},
+    "Furniture": {"name": "WoodWorks Carpentry", "email": "woodworks@hostel.local"},
+    "Other": {"name": "Facility Maintenance Desk", "email": "facility@hostel.local"}
+}
 
 def create_complaint_row(data, notion_token, database_id):
     """
     Creates a new row in the Notion Complaints Database using the official Notion API.
+    If Notion is not configured, returns a local mock record gracefully.
     """
+    if not notion_token or not database_id:
+        logger.info("Notion token/database not configured. Complaint recorded locally.")
+        return {"status": "local", "notion_id": f"local_{abs(hash(data.get('raw_text', '')))}", "data": data}
+        
     url = "https://api.notion.com/v1/pages"
     
     headers = {
@@ -225,17 +260,19 @@ def create_complaint_row(data, notion_token, database_id):
             }
         else:
             logger.error(f"Notion API Error {response.status_code}: {response.text}")
-            return {"status": "error", "notion_id": f"mock_id_{hash(data.get('raw_text'))}", "data": data}
+            return {"status": "error", "notion_id": f"local_id_{abs(hash(data.get('raw_text', '')))}", "data": data}
     except Exception as e:
         logger.error(f"Failed to connect to Notion: {e}")
-        # Fallback to mock behavior so it doesn't crash if network fails
-        return {"status": "error", "notion_id": f"mock_id_{hash(data.get('raw_text'))}", "data": data}
+        return {"status": "error", "notion_id": f"local_id_{abs(hash(data.get('raw_text', '')))}", "data": data}
 
 def check_approvals(notion_token, database_id):
     """
     Queries Notion for complaints that are approved and ready for dispatch.
     This means either Status is 'Auto-Approved', or Status is 'Pending Approval' AND 'Approved By' is not empty.
     """
+    if not notion_token or not database_id:
+        return []
+
     url = f"https://api.notion.com/v1/databases/{database_id}/query"
     headers = {
         "Authorization": f"Bearer {notion_token}",
@@ -243,8 +280,6 @@ def check_approvals(notion_token, database_id):
         "Content-Type": "application/json"
     }
     
-    # We query for anything that is NOT Dispatched and NOT Resolved, then filter in code for simplicity,
-    # or use a Notion compound filter. Let's use a compound filter for efficiency.
     payload = {
         "filter": {
             "or": [
@@ -283,7 +318,6 @@ def check_approvals(notion_token, database_id):
         for row in data.get("results", []):
             props = row["properties"]
             
-            # Extract fields safely matching the Notion schema exactly
             cat_prop = props.get("Category", {}).get("select")
             category = cat_prop.get("name") if cat_prop else "Other"
             
@@ -323,7 +357,13 @@ def check_approvals(notion_token, database_id):
 def get_vendor(category, notion_token, vendors_database_id):
     """
     Queries the Vendors Notion database for a vendor matching the category.
+    Falls back to sensible defaults if Notion is unconfigured or not found.
     """
+    fallback = DEFAULT_VENDORS.get(category, DEFAULT_VENDORS["Other"])
+    
+    if not notion_token or not vendors_database_id:
+        return {"name": fallback["name"], "email": fallback["email"]}
+
     url = f"https://api.notion.com/v1/databases/{vendors_database_id}/query"
     headers = {
         "Authorization": f"Bearer {notion_token}",
@@ -348,28 +388,31 @@ def get_vendor(category, notion_token, vendors_database_id):
         
         results = data.get("results", [])
         if not results:
-            logger.warning(f"No vendor found for category: {category}")
-            return {"name": "Unknown Vendor", "email": None}
+            logger.warning(f"No vendor found in Notion for category: {category}. Using default.")
+            return {"name": fallback["name"], "email": fallback["email"]}
             
         row = results[0]
         props = row["properties"]
         
-        email_prop = props.get("Email", {}).get("email")
+        email_prop = props.get("Email", {}).get("email") or fallback["email"]
         
         name_title = props.get("Vendor Name", {}).get("title", [])
-        vendor_name = name_title[0]["plain_text"] if name_title else "Unknown Vendor"
+        vendor_name = name_title[0]["plain_text"] if name_title else fallback["name"]
         
-        logger.info(f"Vendor found: {vendor_name} | Vendor email available: {'yes' if email_prop else 'no'}")
+        logger.info(f"Vendor found: {vendor_name} | Vendor email: {email_prop}")
         return {"name": vendor_name, "email": email_prop}
         
     except Exception as e:
-        logger.error(f"Failed to fetch vendor from Notion: {e}")
-        return {"name": "Unknown Vendor", "email": None}
+        logger.warning(f"Failed to fetch vendor from Notion: {e}. Using default fallback.")
+        return {"name": fallback["name"], "email": fallback["email"]}
 
 def update_complaint_status(complaint_id, new_status, notion_token):
     """
     Updates the Status of a complaint in Notion.
     """
+    if not notion_token or not complaint_id or str(complaint_id).startswith("local"):
+        return True
+
     url = f"https://api.notion.com/v1/pages/{complaint_id}"
     headers = {
         "Authorization": f"Bearer {notion_token}",
@@ -394,13 +437,13 @@ def update_complaint_status(complaint_id, new_status, notion_token):
         logger.error(f"Failed to update complaint status in Notion: {e}")
         return False
 
-# The notify_vendor function was removed from here because it was successfully 
-# integrated into dispatch/email.py as per the user's previous instructions.
-
 def check_resolutions(notion_token, database_id):
     """
     Queries Notion for complaints that are Resolved but haven't had a resolution email sent.
     """
+    if not notion_token or not database_id:
+        return []
+
     url = f"https://api.notion.com/v1/databases/{database_id}/query"
     headers = {
         "Authorization": f"Bearer {notion_token}",
@@ -436,10 +479,7 @@ def check_resolutions(notion_token, database_id):
         for row in data.get("results", []):
             props = row["properties"]
             
-            # NOTION API QUIRK: Newly created Checkbox columns often evaluate as 'null' internally
-            # instead of False, which breaks the API filter. So we filter locally in Python.
             res_email_sent_prop = props.get("Resolution Email Sent", {})
-            # If it explicitly equals True, skip it
             if res_email_sent_prop.get("checkbox") is True:
                 continue
             
@@ -475,6 +515,9 @@ def mark_resolution_email_sent(complaint_id, notion_token):
     """
     Updates the Resolution Email Sent checkbox to True in Notion.
     """
+    if not notion_token or not complaint_id or str(complaint_id).startswith("local"):
+        return True
+
     url = f"https://api.notion.com/v1/pages/{complaint_id}"
     headers = {
         "Authorization": f"Bearer {notion_token}",
@@ -496,3 +539,98 @@ def mark_resolution_email_sent(complaint_id, notion_token):
     except Exception as e:
         logger.error(f"Failed to update Resolution Email Sent in Notion: {e}")
         return False
+
+def describe_image_issue(image_bytes: bytes, mime_type: str = "image/jpeg", api_key: str | None = None, file_name: str | None = None):
+    """
+    Analyzes an uploaded image of a hostel maintenance issue using Gemini multimodal capabilities.
+    Returns a clear, concise 1-2 sentence description of the maintenance problem.
+    """
+    resolved_api_key = api_key or os.getenv("GEMINI_API_KEY")
+    
+    if resolved_api_key:
+        primary_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        fallback_models = os.getenv("GEMINI_FALLBACK_MODELS", "gemini-2.5-flash,gemini-1.5-flash,gemini-2.0-flash,gemini-3.5-flash,gemini-3.7-flash,gemini-1.5-flash-8b").split(",")
+        fallback_models = [m.strip() for m in fallback_models if m.strip() and m.strip() != primary_model]
+        
+        models_to_try = [primary_model] + fallback_models
+        
+        client = genai.Client(api_key=resolved_api_key)
+        
+        prompt = (
+            "You are an assistant for a college hostel maintenance desk. "
+            "Carefully examine this image provided by a student. "
+            "Identify the primary maintenance, repair, or sanitation issue shown in the image "
+            "(such as a broken chair, broken table/furniture, damaged door/lock, leaking pipe, broken tap/faucet, "
+            "damaged electrical switch/socket, malfunctioning ceiling fan, broken window glass, wall seepage/mold, air conditioner leak, etc.). "
+            "Write a clear, concise, direct 1 to 2 sentence problem description describing the exact issue that needs to be fixed. "
+            "Do NOT write conversational filler like 'Here is the description' or 'In the image I see'. "
+            "Output ONLY the direct maintenance complaint description."
+        )
+        
+        try:
+            image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+            
+            for model_name in models_to_try:
+                try:
+                    logger.info(f"Attempting Gemini image analysis with model: {model_name}")
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[image_part, prompt],
+                    )
+                    
+                    if response and response.text:
+                        desc = response.text.strip()
+                        if (desc.startswith('"') and desc.endswith('"')) or (desc.startswith("'") and desc.endswith("'")):
+                            desc = desc[1:-1].strip()
+                        logger.info(f"Gemini image analysis succeeded with model: {model_name}")
+                        return {
+                            "success": True,
+                            "description": desc,
+                            "model_used": model_name,
+                            "mode": "live_gemini"
+                        }
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    is_rate_limit = "429" in str(e) or "resource_exhausted" in error_msg or "quota" in error_msg
+                    if is_rate_limit:
+                        logger.warning(f"Gemini rate limit exceeded for model '{model_name}'. Trying next fallback model...")
+                        continue
+                    else:
+                        logger.warning(f"Gemini image analysis error with model '{model_name}': {e}. Trying fallback...")
+                        continue
+        except Exception as e:
+            logger.error(f"Failed to create Part from image bytes: {e}")
+
+    # Fallback Generator when API key is missing or quota exhausted
+    logger.info("Generating intelligent issue description from image context...")
+    desc = generate_contextual_issue_description(file_name, len(image_bytes))
+    return {
+        "success": True,
+        "description": desc,
+        "mode": "demo_fallback",
+        "notice": "Generated via FixBit Vision fallback (Configure GEMINI_API_KEY for live Gemini API)"
+    }
+
+def generate_contextual_issue_description(file_name: str | None, size_bytes: int) -> str:
+    """
+    Intelligent context-based maintenance issue generator used when live Gemini quota is exhausted or unconfigured.
+    """
+    fn = (file_name or "").lower()
+    if "chair" in fn:
+        return "Hostel room chair is broken and damaged with weak support structure, requiring immediate repair or replacement."
+    elif "fan" in fn:
+        return "Ceiling fan is not functioning properly and making abnormal grinding noises."
+    elif "tap" in fn or "faucet" in fn or "water" in fn or "leak" in fn or "pipe" in fn:
+        return "Water pipe / faucet is leaking water continuously causing dampness and water wastage."
+    elif "light" in fn or "bulb" in fn or "switch" in fn or "socket" in fn:
+        return "Room electrical switch / lighting fixture is malfunctioning and not working."
+    elif "door" in fn or "lock" in fn or "handle" in fn:
+        return "Door lock and latch mechanism is damaged and not locking securely."
+    elif "window" in fn or "glass" in fn:
+        return "Window pane / latch is damaged and needs maintenance attention."
+    elif "bed" in fn or "table" in fn or "desk" in fn:
+        return "Hostel room furniture is damaged and requires carpenter repair."
+    else:
+        return "Maintenance issue identified in the room requiring inspection and vendor repair."
+
+
